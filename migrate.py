@@ -73,6 +73,8 @@ GITLAB_ADMIN_PASS = config.get("migrate", "gitlab_admin_pass")
 FORGEJO_URL = config.get("migrate", "forgejo_url")
 FORGEJO_API_URL = f"{FORGEJO_URL}/api/v1"
 FORGEJO_TOKEN = config.get("migrate", "forgejo_token")
+FORGEJO_USER = config.get("migrate", "forgejo_admin_user")
+FORGEJO_PASSWORD = config.get("migrate", "forgejo_admin_pass")
 #######################
 # CONFIG SECTION END
 #######################
@@ -83,7 +85,9 @@ def main():
     _args = docopt(__doc__)
     args = {k.replace("--", ""): v for k, v in _args.items()}
 
-    fg_print.print_color(fg_print.Bcolors.HEADER, "---=== Gitlab to Forgejo migration ===---")
+    fg_print.print_color(
+        fg_print.Bcolors.HEADER, "---=== Gitlab to Forgejo migration ===---"
+    )
     print(f"Version: {SCRIPT_VERSION}")
     print()
 
@@ -191,9 +195,10 @@ def get_teams(fg_api: pyforgejo, orgname: string) -> List:
 def get_team_members(teamid: int) -> List:
     """get members for a team"""
     existing_members = []
-    member_response: requests.Response = requests.get(
+    session = requests.Session()
+    session.auth = (FORGEJO_USER, FORGEJO_PASSWORD)
+    member_response: requests.Response = session.get(
         f"{FORGEJO_API_URL}/teams/{teamid}/members",
-        headers={"Authorization": FORGEJO_TOKEN},
         timeout=10,
     )
     if member_response.ok:
@@ -202,6 +207,7 @@ def get_team_members(teamid: int) -> List:
         fg_print.error(
             f"Failed to load existing members for team {teamid}! {member_response.text}"
         )
+    session.close()
 
     return existing_members
 
@@ -247,6 +253,7 @@ def get_user_or_group(project: gitlab.v4.objects.Project) -> Dict:
             fg_print.error(
                 f"Failed to load user or group {proj_namespace_name}! {response.text}"
             )
+    session.close()
 
     return result
 
@@ -316,7 +323,9 @@ def member_exists(username: string, teamid: int) -> bool:
         )
 
         if existing_member:
-            fg_print.warning(f"Member {username} is already in team {teamid}, skipping!")
+            fg_print.warning(
+                f"Member {username} is already in team {teamid}, skipping!"
+            )
             return True
 
         print(f"Member {username} is not in team {teamid}, importing!")
@@ -334,7 +343,9 @@ def collaborator_exists(
         f"/repos/{repo}/collaborators/{username}"
     )
     if collaborator_response.ok:
-        fg_print.warning(f"Collaborator {username} already exists in Forgejo, skipping!")
+        fg_print.warning(
+            f"Collaborator {username} already exists in Forgejo, skipping!"
+        )
     else:
         print(f"Collaborator {username} not found in Forgejo, importing!")
 
@@ -409,7 +420,9 @@ def issue_exists(fg_api: pyforgejo, owner: string, repo: string, issue: string) 
         )
 
         if existing_issue is not None:
-            fg_print.warning(f"Issue {issue} already exists in project {repo}, skipping!")
+            fg_print.warning(
+                f"Issue {issue} already exists in project {repo}, skipping!"
+            )
             return True
 
         print(f"Issue {issue} does not exist in project {repo}, importing!")
@@ -444,7 +457,9 @@ def _import_project_labels(
             if import_response.ok:
                 fg_print.info(f"Label {label.name} imported!")
             else:
-                fg_print.error(f"Label {label.name} import failed: {import_response.text}")
+                fg_print.error(
+                    f"Label {label.name} import failed: {import_response.text}"
+                )
 
 
 def _import_project_milestones(
@@ -783,10 +798,11 @@ def _import_group_members(
             f"Organization teams fetched, importing users to first team: {first_team_name}"
         )
         for member in members:
+            session = requests.Session()
+            session.auth = (FORGEJO_USER, FORGEJO_PASSWORD)
             if not member_exists(member.username, first_team["id"]):
-                import_response: requests.Response = requests.put(
+                import_response: requests.Response = session.put(
                     f"{FORGEJO_API_URL}/users/{member.username}",
-                    headers={"Authorization": FORGEJO_TOKEN},
                     timeout=10,
                     data={"username": member.username},
                 )

@@ -92,6 +92,8 @@ def delete_to_gitlab(gitlab_projects: list) -> None:
                     f"Error deleting push mirror {mirror_name} on Forgejo for {proj_path}"
                 )
 
+    session.close()
+
 
 def to_forgejo(gitlab_projects: list) -> None:
     """Create push mirrors from Gitlab to Forgejo"""
@@ -133,6 +135,8 @@ def to_gitlab(gitlab_projects: list) -> None:
             fg_print.info(f"Push mirror created on Gitlab for {proj_path}")
         else:
             fg_print.error(f"Error setting push mirror on Forgejo for {proj_path}")
+
+    session.close()
 
 
 if __name__ == "__main__":
