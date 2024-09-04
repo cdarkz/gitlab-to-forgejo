@@ -48,86 +48,129 @@ session.auth = (FORGEJO_USER, FORGEJO_PASSWORD)
 
 
 def ask_confirmation() -> None:
-    """Ask for confirmation for the prefix to use"""
-    fg_print.info(
-        "This script should be used with a grain of salt as it will delete all your data!"
-    )
-    fg_print.warning(
-        "You need to run it multiple times, because requests pagination is not implemented"
-    )
+    """Ask for confirmation before proceeding"""
+    fg_print.info("This script deletes your data. Use it with a grain of salt!")
     choice = confirm("Do you want continue?")
     if not choice:
         fg_print.info("OK. See you next time!")
         os.sys.exit()
 
 
-def del_orgs_repos() -> None:
+def del_orgs_repos(page: int=1) -> None:
     """Delete all repositories in all organizations"""
-    orgs = session.get(f"{FORGEJO_API_URL}/orgs").json()
-    org_names = [org["name"] for org in orgs]
-    for org in org_names:
-        repos = session.get(f"{FORGEJO_API_URL}/orgs/{org}/repos").json()
-        for repo in repos:
-            repo_name = repo["name"]
+    all_orgs = []
+    url = f"{FORGEJO_API_URL}/orgs"
+    while True:
+        orgs_dict = session.get(url, params={'page': page}).json()
+        org_names = [org["name"] for org in orgs_dict]
+        page += 1
+        if org_names == []:
+            break
+        all_orgs.extend(org_names)
+
+    for org in all_orgs:
+        all_orgs_repos = []
+        page = 1
+        url = f"{FORGEJO_API_URL}/orgs/{org}/repos"
+        while True:
+            orgs_repos_dict = session.get(url, params={'page': page}).json()
+            org_repos = [repo["name"] for repo in orgs_repos_dict]
+            page += 1
+            if org_repos == []:
+                break
+            all_orgs_repos.extend(org_repos)
+        for repo_name in all_orgs_repos:
             url = f"{FORGEJO_API_URL}/repos/{org}/{repo_name}"
             response: requests.Response = session.delete(url, timeout=20)
             if response.ok:
                 fg_print.info(f"Repository {repo_name} deleted on Forgejo for {org}")
             else:
                 fg_print.error(
-                    f"Error deleting repository {repo_name} on Forgejo for {org}"
+                    f"Error deleting repository {repo_name} on Forgejo for {org}",
+                    f"Error deleting repository {repo_name} for {org}",
                 )
 
 
-def del_orgs() -> None:
+def del_orgs(page: int=1) -> None:
     """Delete all organizations"""
-    orgs = session.get(f"{FORGEJO_API_URL}/orgs").json()
-    org_names = [org["name"] for org in orgs]
-    for orgs in org_names:
+    all_orgs = []
+    url = f"{FORGEJO_API_URL}/orgs"
+    while True:
+        orgs_dict = session.get(url, params={'page': page}).json()
+        org_names = [org["name"] for org in orgs_dict]
+        page += 1
+        if org_names == []:
+            break
+        all_orgs.extend(org_names)
+    for orgs in all_orgs:
         url = f"{FORGEJO_API_URL}/orgs/{orgs}"
         response: requests.Response = session.delete(url, timeout=20)
         if response.ok:
             fg_print.info(f"Organization {orgs} deleted on Forgejo")
         else:
-            fg_print.error(f"Error deleting organization {orgs} on Forgejo")
+            fg_print.error(
+                f"Error deleting organization {orgs} on Forgejo",
+                f"Error deleting organization {orgs}",
+            )
 
 
-def del_user_repos() -> None:
+def del_user_repos(page: int=1) -> None:
     """Delete all user repositories"""
-    user_repos_dict = session.get(f"{FORGEJO_API_URL}/user/repos").json()
-    user_repos = [user_repo["full_name"] for user_repo in user_repos_dict]
-    for repo in user_repos:
+    all_user_repos = []
+    url = f"{FORGEJO_API_URL}/user/repos"
+    while True:
+        user_repos_dict = session.get(url, params={'page': page}).json()
+        user_repos = [user_repo["full_name"] for user_repo in user_repos_dict]
+        page += 1
+        if user_repos == []:
+            break
+        all_user_repos.extend(user_repos)
+    for repo in all_user_repos:
         url = f"{FORGEJO_API_URL}/repos/{repo}"
         response: requests.Response = session.delete(url, timeout=20)
         if response.ok:
             fg_print.info(f"Repository {repo} deleted on Forgejo")
         else:
-            fg_print.error(f"Error deleting repository {repo} on Forgejo")
+            fg_print.error(
+                f"Error deleting repository {repo} on Forgejo",
+                f"Error deleting repository {repo}",
+            )
 
 
-def del_users() -> None:
+def del_users(page: int=1) -> None:
     """Delete all users"""
-    users_dict = session.get(f"{FORGEJO_API_URL}/admin/users").json()
-    user_names = [user["username"] for user in users_dict]
-    for user in user_names:
+    all_users = []
+    url = f"{FORGEJO_API_URL}/admin/users"
+    while True:
+        users_dict = session.get(url, params={'page': page}).json()
+        user_names = [user["username"] for user in users_dict]
+        page += 1
+        if user_names == []:
+            break
+        all_users.extend(user_names)
+    for user in all_users:
         url = f"{FORGEJO_API_URL}/admin/users/{user}"
         response: requests.Response = session.delete(url, timeout=20)
         if response.ok:
             fg_print.info(f"User {user} deleted on Forgejo")
         else:
-            fg_print.error(f"Error deleting user {user} on Forgejo")
+            fg_print.error(
+                f"Error deleting user {user} on Forgejo",
+                f"Error deleting user {user}",
+            )
 
 
 if __name__ == "__main__":
 
     args = docopt(__doc__)
     ask_confirmation()
+
     if args["--orgs-repos"]:
         del_orgs_repos()
-    if args["--orgs"]:
-        del_orgs()
     if args["--user-repos"]:
         del_user_repos()
+    if args["--orgs"]:
+        del_orgs()
     if args["--users"]:
         del_users()
 
@@ -137,3 +180,5 @@ if __name__ == "__main__":
         fg_print.success("\nMigration finished with no errors!")
     else:
         fg_print.error(f"\nMigration finished with {ERR_COUNT} errors!")
+        print("Failed elements:")
+        print(*fg_print.GLOBAL_ERROR_LIST, sep="\n")
