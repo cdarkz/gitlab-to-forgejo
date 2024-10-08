@@ -163,6 +163,10 @@ def del_users(page: int=1) -> None:
 if __name__ == "__main__":
 
     args = docopt(__doc__)
+    if not any([args["--orgs-repos"], args["--orgs"], args["--user-repos"], args["--users"]]):
+        fg_print.error("Please specify what to delete! You can use --help for more information.")
+        os.sys.exit()
+
     ask_confirmation()
 
     if args["--orgs-repos"]:
