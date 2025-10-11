@@ -812,6 +812,7 @@ def _import_group_members(
     if existing_teams:
         first_team = existing_teams[0]
         first_team_name = first_team["name"]
+        first_team_id = first_team["id"]
         print(
             f"Organization teams fetched, importing users to first team: {first_team_name}"
         )
@@ -820,7 +821,7 @@ def _import_group_members(
             session.auth = (FORGEJO_USER, FORGEJO_PASSWORD)
             if not member_exists(member.username, first_team["id"]):
                 import_response: requests.Response = session.put(
-                    f"{FORGEJO_API_URL}/users/{member.username}",
+                    f"{FORGEJO_API_URL}/teams/{first_team_id}/members/{member.username}",
                     timeout=10,
                     data={"username": member.username},
                 )
