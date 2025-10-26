@@ -52,6 +52,7 @@ from pyforgejo.models.create_org_option import CreateOrgOption
 from pyforgejo.api.repository import repo_get
 from pyforgejo.api.repository import repo_migrate
 from pyforgejo.models.migrate_repo_options import MigrateRepoOptions
+from pyforgejo.models.migrate_repo_options_service import MigrateRepoOptionsService
 
 from fg_migration import fg_print
 
@@ -589,9 +590,9 @@ def _import_project_issues(
 
 def _import_project_repo(fg_api: pyforgejo, project: gitlab.v4.objects.Project):
     if not repo_exists(fg_api, project.namespace["name"], name_clean(project.name)):
-        clone_url = project.http_url_to_repo
+        clone_url = project.web_url
         if GITLAB_ADMIN_PASS == "" and GITLAB_ADMIN_USER == "":
-            clone_url = project.ssh_url_to_repo
+            clone_url = project.http_url_to_repo
         private = project.visibility == "private" or project.visibility == "internal"
 
         owner = get_user_or_group(project)
@@ -603,20 +604,27 @@ def _import_project_repo(fg_api: pyforgejo, project: gitlab.v4.objects.Project):
                     auth_username=GITLAB_ADMIN_USER,
                     clone_addr=clone_url,
                     description=project.description,
+                    service=MigrateRepoOptionsService("gitlab"),
+                    issues=True,
+                    labels=True,
+                    milestones=True,
                     mirror=False,
+                    pull_requests=True,
+                    releases=True,
                     private=private,
                     repo_name=proj_name,
                     uid=owner["id"],
+                    wiki=True,
                 ),
                 client=fg_api,
             )
             if import_response.status_code.name == "CREATED":
-                fg_print.info(f"Project {proj_name} imported!")
+                fg_print.info(f"Project {proj_name} imported {clone_url}!")
             else:
                 err_message = json.loads(import_response.content)["message"]
                 fg_print.error(
                     f"Project {proj_name} import failed: {err_message}",
-                    f"project {proj_name} import failed",
+                    f"project {proj_name} import failed {clone_url}",
                 )
         else:
             fg_print.error(
