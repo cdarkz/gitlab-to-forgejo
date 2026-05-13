@@ -13,6 +13,19 @@ This script supports migration of:
 
 Tested with Gitlab Version 17.2.1 and Forgejo Version 8.0.0
 
+Tested with Gitlab Version 18.11.0 and Forgejo Version 14.0.3 for project only mode
+
+### Forgejo notice
+If you are using Nginx to proxy to Forgejo, it's recommended to extend the timeout.
+```
+location / {
+    proxy_read_timeout 300;
+    proxy_connect_timeout 300;
+    proxy_send_timeout 300;
+    ...
+}
+```
+
 ## Usage
 
 ### How to use with venv
