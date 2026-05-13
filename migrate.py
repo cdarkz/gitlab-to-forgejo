@@ -978,7 +978,7 @@ def import_projects_only(gitlab_api: gitlab.Gitlab, fg_api: pyforgejo):
         target_owner = root_ns
         if len(parts) > 2:
             # Handle sub-group projects
-            target_repo_name = "_".join(parts[1:])
+            target_repo_name = ".".join(parts[1:])
         else:
             target_repo_name = parts[-1]
 
