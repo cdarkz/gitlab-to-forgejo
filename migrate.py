@@ -5,6 +5,7 @@
 #
 """
 Usage: migrate.py [--users] [--groups] [--projects] [--all] [--notify]
+       migrate.py --pj_only
        migrate.py --help
 
 Migration script to import projects, users, groups, from Gitlab to Forgejo.
@@ -14,6 +15,7 @@ Options
   --users     migrate users
   --groups    migrate groups
   --projects  migrate projects
+  --pj_only   migrate projects only
   --all       migrate all
   --notify    send notification to users
 """
@@ -23,6 +25,7 @@ import re
 import random
 import string
 import configparser
+import time
 from typing import Dict
 from typing import List
 
@@ -93,7 +96,7 @@ def main():
     print()
 
     # private token or personal token authentication
-    gl = gitlab.Gitlab(GITLAB_URL, private_token=GITLAB_TOKEN)
+    gl = gitlab.Gitlab(GITLAB_URL, private_token=GITLAB_TOKEN, keep_base_url=True)
     gl.auth()
     assert isinstance(gl.user, gitlab.v4.objects.CurrentUser)
     fg_print.info(f"Connected to Gitlab, version: {gl.version()[0]}")
@@ -111,6 +114,8 @@ def main():
     # IMPORT PROJECTS
     if args["projects"] or args["all"]:
         import_projects(gl, fg)
+    if args["pj_only"]:
+        import_projects_only(gl, fg)
     # IMPORT NOTHING ?
     if (
         not args["users"]
@@ -920,6 +925,112 @@ def import_projects(gitlab_api: gitlab.Gitlab, fg_api: pyforgejo):
         # _import_project_issues(
         #    fg_api, issues, project.namespace["name"], name_clean(project.name)
         # )
+
+def wait_for_migration_done(fg_api, owner, repo_name, timeout=3600):
+    """
+    Polling Forgejo API，and waiting migration finished
+    timeout: default 1 hour
+    """
+    start_time = time.time()
+    fg_print.info(f"Waiting for migration to complete: {owner}/{repo_name}...")
+
+    while True:
+        try:
+            # Try to fetch the repo information
+            res = repo_get.sync_detailed(owner, repo_name, client=fg_api)
+
+            # Criteria: default_branch is setup after migration finished usually
+            if res.status_code.name == "OK":
+                data = json.loads(res.content)
+                default_branch = data.get("default_branch")
+                # print(f"status_cod: {res.status_code}")
+                # print(f"repo_data: {default_branch}")
+                # print(f"res: {res}")
+                if default_branch:
+                    fg_print.success(f"Migration finished for {repo_name}. Default branch: {default_branch}")
+                    return True
+
+        except Exception as e:
+            fg_print.warning(f"Waiting... (Status not ready yet: {e})")
+
+        if time.time() - start_time > timeout:
+            fg_print.error(f"Timeout: Migration for {repo_name} took too long.")
+            return False
+
+        # API Check every 10 seconds, avoid locked
+        time.sleep(10)
+
+def import_projects_only(gitlab_api: gitlab.Gitlab, fg_api: pyforgejo):
+    """read all projects and their issues"""
+    projects: gitlab.v4.objects.Project = gitlab_api.projects.list(all=True)
+    ALLOWED_ROOTS = ["cdarkz", "ns_sw"]
+
+    print(f"Found {len(projects)} gitlab projects as user {gitlab_api.user.username}")
+
+    for project in projects:
+        # print(project)
+        full_path = project.path_with_namespace
+        parts = full_path.split('/')
+        root_ns = parts[0]
+        if root_ns not in ALLOWED_ROOTS:
+            continue
+
+        target_owner = root_ns
+        if len(parts) > 2:
+            # Handle sub-group projects
+            target_repo_name = "_".join(parts[1:])
+        else:
+            target_repo_name = parts[-1]
+
+        print(f"Name: {project.name}, Description: {project.description}, URL: {project.http_url_to_repo}")        # print(project)
+        print(f"[Processing] GitLab: {full_path} -> Forgejo: {target_owner}/{target_repo_name}")
+        import_response: requests.Response = repo_migrate.sync_detailed(
+            body=MigrateRepoOptions(
+                clone_addr=project.http_url_to_repo,
+                auth_token=GITLAB_TOKEN,
+                description=project.description or "",
+                service=MigrateRepoOptionsService("gitlab"),
+                issues=True,
+                labels=True,
+                mirror=False,
+                releases=True,
+                private=False,
+                repo_name=target_repo_name,
+                repo_owner=target_owner,
+                lfs=True,
+            ),
+            client=fg_api,
+        )
+
+        status = import_response.status_code.name
+        if status == "CREATED":
+            print(f"Project {target_repo_name} migration queued.")
+            success = wait_for_migration_done(fg_api, target_owner, target_repo_name)
+            if not success:
+                fg_print.error(f"Migration might have failed or timed out for {project.name}")
+        else:
+            if status == "GATEWAY_TIMEOUT":
+                fg_print.warning(f"Timeout detected for {target_repo_name}. Checking if it's actually migrating...")
+                # Wait 5 seconds to sync db
+                time.sleep(5)
+                # Check the project has created in Forgejo
+                check_res = repo_get.sync_detailed(target_owner, target_repo_name, client=fg_api)
+                if check_res.status_code.name == "OK":
+                    fg_print.info(f"Project {target_repo_name} was created despite timeout. Proceeding to monitor...")
+                    success = wait_for_migration_done(fg_api, target_owner, target_repo_name)
+                    if not success:
+                        fg_print.error(f"Migration might have failed or timed out for {project.name}")
+                    continue
+            try:
+                err_data = json.loads(import_response.content.decode('utf-8'))
+                err_message = err_data.get("message", "Unknown error")
+            except Exception as e:
+                err_message = f"Status: {status} ({e})"
+
+            if "already exists" in err_message.lower():
+                fg_print.info(f"SKIP: {project.name} already exists.")
+            else:
+                fg_print.error(f"FAILED: {project.name} | Error: {err_message}")
 
 
 def name_clean(name):
